@@ -9,6 +9,10 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != 'true' ] && [ "${1:-}" != '--force' ]; then
 	exit 0
 fi
 
+# Async, so the session starts right away - the first commands of a session may
+# run before the install and build have finished
+echo '{"async": true, "asyncTimeout": 1800000}'
+
 cd "${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 WASM_PACK_VERSION='0.13.1'
