@@ -28,10 +28,13 @@ if ! command -v rsync > /dev/null; then
 	$SUDO apt-get install -y -qq rsync
 fi
 
+# Link the packages without running their build scripts first: the link step
+# recreates node_modules/wasm-pack, which would delete the binary seeded below
+yarn install --mode=skip-build
+
 # wasm-pack downloads its binary from its postinstall script using axios 0.26.1,
 # which sends a plain HTTP request that the sandbox egress proxy answers with a
-# 405. Seeding the binary first makes binary-install skip the download, and Yarn
-# keeps this directory when it links the package.
+# 405. Seeding the binary makes binary-install skip that download.
 if [ "$(uname -s)" = 'Linux' ] && [ "$(uname -m)" = 'x86_64' ] && [ ! -x "$WASM_PACK_DIR/wasm-pack" ]; then
 	mkdir -p "$WASM_PACK_DIR"
 	curl -sSL "https://github.com/rustwasm/wasm-pack/releases/download/v$WASM_PACK_VERSION/wasm-pack-v$WASM_PACK_VERSION-x86_64-unknown-linux-musl.tar.gz" | tar -xz --strip-components=1 -C "$WASM_PACK_DIR"
