@@ -18,6 +18,19 @@ cd "${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 WASM_PACK_VERSION='0.13.1'
 WASM_PACK_DIR='packages/onenote-converter/node_modules/wasm-pack/binary'
 
+# Large downloads through the sandbox proxy are sometimes cut off mid-transfer,
+# which takes down the whole install - Electron's binary in particular
+retry() {
+	local attempt=1
+	until "$@"; do
+		if [ "$attempt" -ge 3 ]; then
+			return 1
+		fi
+		attempt=$((attempt + 1))
+		sleep 10
+	done
+}
+
 # The app-cli build task shells out to rsync, which the image doesn't ship
 if ! command -v rsync > /dev/null; then
 	SUDO=''
@@ -30,24 +43,24 @@ fi
 
 # Link the packages without running their build scripts first: the link step
 # recreates node_modules/wasm-pack, which would delete the binary seeded below
-yarn install --mode=skip-build
+retry yarn install --mode=skip-build
 
 # wasm-pack downloads its binary from its postinstall script using axios 0.26.1,
 # which sends a plain HTTP request that the sandbox egress proxy answers with a
 # 405. Seeding the binary makes binary-install skip that download.
 if [ "$(uname -s)" = 'Linux' ] && [ "$(uname -m)" = 'x86_64' ] && [ ! -x "$WASM_PACK_DIR/wasm-pack" ]; then
 	mkdir -p "$WASM_PACK_DIR"
-	curl -sSL "https://github.com/rustwasm/wasm-pack/releases/download/v$WASM_PACK_VERSION/wasm-pack-v$WASM_PACK_VERSION-x86_64-unknown-linux-musl.tar.gz" | tar -xz --strip-components=1 -C "$WASM_PACK_DIR"
+	curl -sSL --retry 3 "https://github.com/rustwasm/wasm-pack/releases/download/v$WASM_PACK_VERSION/wasm-pack-v$WASM_PACK_VERSION-x86_64-unknown-linux-musl.tar.gz" | tar -xz --strip-components=1 -C "$WASM_PACK_DIR"
 fi
 
 # The pre-commit hook runs `corepack yarn`, and corepack fetches the pinned Yarn
 # release from repo.yarnpkg.com, which the sandbox proxy blocks. Priming its
 # cache from the npm registry, which is allowed, keeps commits working.
 if ! corepack yarn --version > /dev/null 2>&1; then
-	COREPACK_NPM_REGISTRY='https://registry.npmjs.org' corepack install
+	retry env COREPACK_NPM_REGISTRY='https://registry.npmjs.org' corepack install
 fi
 
-yarn install
+retry yarn install
 
 # The install copies packages/app-cli/app to its build directory before
 # `yarn tsc` has emitted the JavaScript, so the copy is redone here
